@@ -35,7 +35,8 @@ exports.up = (knex, Promise) => {
       .then(() =>
         knex.schema.createTable('poems', (table) => {
           table.increments('id');
-          table.text('line');
+          table.string('line');
+          table.unique('line');
         })
       )
       .then(() => {
@@ -73,9 +74,10 @@ exports.up = (knex, Promise) => {
         return knex.schema.createTable('posts', (table) => {
           table.increments('id');
           table.string('username');
-          table.integer('line_id').unsigned().notNull();
+          table.string('message').notNull();
+          // table.integer('line_id').unsigned().notNull();
           table.foreign('username').references('users.username');
-          table.foreign('line_id').references('poems.id');
+          table.foreign('message').references('poems.line');
           table.timestamps();
         });
       })

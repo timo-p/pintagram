@@ -2,13 +2,13 @@
 const knex = require('../services/db').getKnex();
 
 const posts = async () => {
-  const lineIds = await knex('poems').pluck('id');
+  const lines = await knex('poems').pluck('line');
 
   return {
-    line_id: {
+    message: {
       presence: true,
       inclusion: {
-        within: lineIds,
+        within: lines,
       }
     }
   };

@@ -120,16 +120,20 @@ const register = async () => {
   });
 };
 
-const getUserPosts = async (username) => {
-  const posts = await knex('posts').where({username}).orderBy('created_at');
+const getUserPosts = async (username, queryParameters) => {
+  const query = knex('posts').where({username}).orderBy('created_at').limit(20);
+  if (queryParameters.posts_before) {
+    query.andWhere('id', '<', queryParameters.posts_before);
+  }
+  const posts = await query;
   return buildResponse(posts);
 };
 
-const createPost = async (user, lineId) => {
+const createPost = async (user, message) => {
   const post = await knex.transaction(async (trx) => {
     await trx('posts').insert({
       username: user.username,
-      line_id: lineId,
+      message,
       created_at: new Date(),
     });
     return trx('posts').whereRaw('id = (select last_insert_id())').first();
@@ -167,7 +171,7 @@ const routes = [
     resource: '/users/{username}/posts',
     httpMethod: 'GET',
     authorize: true,
-    action: (event, {pathParameters}) => getUserPosts(pathParameters.username),
+    action: (event, {pathParameters, queryParameters}) => getUserPosts(pathParameters.username, queryParameters),
   },
   {
     resource: '/login',
@@ -180,7 +184,7 @@ const routes = [
     httpMethod: 'POST',
     authorize: true,
     constraints: constraints.posts,
-    action: (event, {user, body}) => createPost(user, body.line_id),
+    action: (event, {user, body}) => createPost(user, body.message),
   },
 ];
 
@@ -202,6 +206,7 @@ const router = async (event) => {
 
   const body = (event.body && JSON.parse(event.body)) || {};
   const pathParameters = event.pathParameters || {};
+  const queryParameters = event.queryStringParameters || {};
 
   if (route.constraints) {
     const routeConstraints = await route.constraints();
@@ -211,7 +216,7 @@ const router = async (event) => {
     }
   }
 
-  return await route.action(event, {body, pathParameters, user});
+  return await route.action(event, {body, pathParameters, user, queryParameters});
 };
 
 module.exports = {

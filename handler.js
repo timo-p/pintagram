@@ -2,14 +2,24 @@
 
 const db = require('./services/db');
 const subHours = require('date-fns/sub_hours');
+const isBefore = require('date-fns/is_before');
 const crypto = require('crypto');
 const validate = require('validate.js');
 const constraints = require('./constraints');
+const jwt = require('jsonwebtoken');
 
 const knex = db.getKnex();
 
-const buildResponse = (body = null, statusCode = 200) => ({
+const JWT_TOKEN_COOKIE = 'x-jwt-token';
+
+const buildResponse = (body = null, statusCode = 200, headers = {}) => ({
   statusCode,
+  headers: {
+    ...headers,
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Credentials': true,
+    'Access-Control-Expose-Headers': JWT_TOKEN_COOKIE
+  },
   body: JSON.stringify(body),
 });
 
@@ -19,31 +29,20 @@ const hash = (text, salt) => crypto.createHmac('sha256', salt)
 
 const upperCaseFirstCharacter = (str) => `${str.slice(0, 1).toUpperCase()}${str.slice(1)}`;
 
-const cleanSessions = () => knex('sessions').where('created_at', '<', subHours(new Date(), 24)).delete();
-
 const checkLogin = async (event) => {
-  if (!event.headers['x-session-id']) {
+  if (!event.headers['Authorization']) {
     return false;
   }
-  const id = event.headers['x-session-id'];
-  const user = await knex('users')
-    .select('users.*')
-    .innerJoin('sessions', 'users.username', 'sessions.username')
-    .where('sessions.id', id)
-    .andWhere((builder) =>
-      builder.where('sessions.updated_at', '>', subHours(new Date(), 24))
-        .orWhereNull('sessions.updated_at')
-    )
-    .first();
-
-  if (!user) {
+  const token = event.headers['Authorization'].replace(/^Bearer /, '');
+  try {
+    const user = jwt.verify(token, 'foobar');
+    return {user, token};
+  } catch(e) {
     return false;
   }
-
-  await knex('sessions').update('updated_at', new Date()).where({id});
-
-  return user;
 };
+
+const getUser = async ({user}) => buildResponse(user);
 
 const generateSalt = (length = 64) => {
   const chars = 'abcdefghijklmnopqrstuvwxyz0123456789'.split('');
@@ -56,17 +55,9 @@ const generateSalt = (length = 64) => {
   return salt.join('');
 };
 
-const createSession = async (username) => {
-  const id = generateSalt(32);
+const buildJwtToken = (user) => jwt.sign(user, 'foobar', {expiresIn: '24h'});
 
-  await knex('sessions').insert({
-    username,
-    id,
-    created_at: new Date(),
-  });
-
-  return knex('sessions').where({id}).first();
-};
+const isTokenExpired = (token) => isBefore(new Date(token.iat * 1000), subHours(new Date(), 1));
 
 const register = async () => {
   const {first_name, last_name} = await knex.select('sub1.first_name', 'sub2.last_name')
@@ -108,15 +99,19 @@ const register = async () => {
     created_at: knex.raw('now()'),
   });
 
-  const sessionId = generateSalt(32);
-  const session = await createSession(username, sessionId);
+  const token = buildJwtToken({
+    first_name,
+    last_name,
+    username,
+  });
 
   return buildResponse({
     first_name,
     last_name,
     username,
     password: unhashedPassword,
-    session_id: session.id,
+  }, 200, {
+    [JWT_TOKEN_COOKIE]: token
   });
 };
 
@@ -150,13 +145,17 @@ const login = async (username, password) => {
   if (hashed !== user.password) {
     return buildResponse(null, 400);
   }
-  const sessionId = generateSalt(32);
-  const session = await createSession(username, sessionId);
+  const token = buildJwtToken({
+    username: user.username,
+    first_name: user.first_name,
+    last_name: user.last_name,
+  });
   return buildResponse({
     first_name: user.first_name,
     last_name: user.last_name,
     username: user.username,
-    session_id: session.id,
+  }, 200, {
+    [JWT_TOKEN_COOKIE]: token
   });
 };
 
@@ -166,6 +165,12 @@ const routes = [
     httpMethod: 'POST',
     authorize: false,
     action: () => register(),
+  },
+  {
+    resource: '/user',
+    httpMethod: 'GET',
+    authorize: true,
+    action: (event, {user}) => getUser(user),
   },
   {
     resource: '/users/{username}/posts',
@@ -189,16 +194,16 @@ const routes = [
 ];
 
 const router = async (event) => {
-  if (Math.floor(Math.random() * 101) % 100 === 0) {
-    await cleanSessions();
-  }
   const route = routes.find((r) => r.resource === event.resource && r.httpMethod === event.httpMethod);
   if (!route) {
     return buildResponse(null, 404);
   }
   let user;
+  let token;
   if (route.authorize) {
-    user = await checkLogin(event);
+    const result = await checkLogin(event);
+    user = result.user;
+    token = result.token;
     if (!user) {
       return buildResponse(null, 401);
     }
@@ -216,7 +221,19 @@ const router = async (event) => {
     }
   }
 
-  return await route.action(event, {body, pathParameters, user, queryParameters});
+  const response = await route.action(event, {body, pathParameters, user, queryParameters});
+  if (response.statusCode === 200 && user) {
+    if (isTokenExpired(user)) {
+      response.headers[JWT_TOKEN_COOKIE] = buildJwtToken({
+        username: user.username,
+        first_name: user.first_name,
+        last_name: user.last_name
+      });
+    } else {
+      response.headers[JWT_TOKEN_COOKIE] = token;
+    }
+  }
+  return response;
 };
 
 module.exports = {

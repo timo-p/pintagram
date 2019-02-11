@@ -86,15 +86,23 @@ functions:
       - http:
           path: register
           method: post
+          cors: true
       - http:
           path: login
           method: post
+          cors: true
+      - http:
+          path: user
+          method: get
+          cors: true
       - http:
           path: users/{username}/posts
           method: get
+          cors: true
       - http:
           path: posts
           method: post
+          cors: true
 
 
 #    The following are a few example events you can configure

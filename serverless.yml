@@ -96,12 +96,20 @@ functions:
           method: get
           cors: true
       - http:
+          path: users
+          method: get
+          cors: true
+      - http:
           path: users/{username}/posts
           method: get
           cors: true
       - http:
           path: posts
           method: post
+          cors: true
+      - http:
+          path: posts/{id}
+          method: delete
           cors: true
 
 

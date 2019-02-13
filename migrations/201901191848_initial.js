@@ -27,6 +27,7 @@ exports.up = (knex, Promise) => {
           table.string('username').notNullable().primary();
           table.string('first_name').notNullable();
           table.string('last_name').notNullable();
+          table.integer('posts').notNullable().defaultTo(0);
           table.string('password').notNullable();
           table.string('salt').notNullable();
           table.timestamps();

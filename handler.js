@@ -42,8 +42,6 @@ const checkLogin = async (event) => {
   }
 };
 
-const getUser = async ({user}) => buildResponse(user);
-
 const generateSalt = (length = 64) => {
   const chars = 'abcdefghijklmnopqrstuvwxyz0123456789'.split('');
   let salt = [];
@@ -115,6 +113,8 @@ const register = async () => {
   });
 };
 
+const getUser = async (user) => buildResponse(user);
+
 const getUserPosts = async (username, queryParameters) => {
   const query = knex('posts').where({username}).orderBy('created_at').limit(20);
   if (queryParameters.posts_before) {
@@ -123,6 +123,16 @@ const getUserPosts = async (username, queryParameters) => {
   const posts = await query;
   return buildResponse(posts);
 };
+
+const getUsers = async () => {
+  const users = await knex('users')
+    .select('username', 'first_name', 'last_name', 'posts')
+    .orderBy('posts', 'desc');
+  return buildResponse(users);
+};
+
+const updatePostCount = (username) =>
+  knex('users').update({posts: knex('posts').count().where({username})}).where({username});
 
 const createPost = async (user, message) => {
   const post = await knex.transaction(async (trx) => {
@@ -133,7 +143,18 @@ const createPost = async (user, message) => {
     });
     return trx('posts').whereRaw('id = (select last_insert_id())').first();
   });
+  await updatePostCount(user.username);
   return buildResponse(post);
+};
+
+const deletePost = async (id, user) => {
+  const exists = await knex('posts').select(1).where({id, username: user.username}).limit(1).first();
+  if (!exists) {
+    return buildResponse(null, 401);
+  }
+  await knex('posts').where({id}).delete();
+  await updatePostCount(user.username);
+  return buildResponse();
 };
 
 const login = async (username, password) => {
@@ -173,6 +194,11 @@ const routes = [
     action: (event, {user}) => getUser(user),
   },
   {
+    resource: '/users',
+    httpMethod: 'GET',
+    action: () => getUsers(),
+  },
+  {
     resource: '/users/{username}/posts',
     httpMethod: 'GET',
     authorize: true,
@@ -190,6 +216,12 @@ const routes = [
     authorize: true,
     constraints: constraints.posts,
     action: (event, {user, body}) => createPost(user, body.message),
+  },
+  {
+    resource: '/posts/{id}',
+    httpMethod: 'DELETE',
+    authorize: true,
+    action: (event, {pathParameters, user}) => deletePost(pathParameters.id, user),
   },
 ];
 

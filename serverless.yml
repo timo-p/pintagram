@@ -112,6 +112,10 @@ functions:
           method: get
           cors: true
       - http:
+          path: timeline
+          method: get
+          cors: true
+      - http:
           path: posts
           method: post
           cors: true

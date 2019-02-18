@@ -201,6 +201,16 @@ const login = async (username, password) => {
   });
 };
 
+const getTimeline = async (user) => {
+  const usernames = knex('followers')
+    .select('following')
+    .where('username', user.username);
+  const posts = await knex('posts').select('*')
+    .whereIn('username', usernames)
+    .orWhere('username', user.username);
+  return buildResponse(posts);
+};
+
 const routes = [
   {
     resource: '/register',
@@ -250,6 +260,12 @@ const routes = [
     httpMethod: 'GET',
     authorize: true,
     action: (event, {user}) => getFollowings(user),
+  },
+  {
+    resource: '/timeline',
+    httpMethod: 'GET',
+    authorize: true,
+    action: (event, {user}) => getTimeline(user),
   },
   {
     resource: '/posts/{id}',

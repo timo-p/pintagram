@@ -104,6 +104,14 @@ functions:
           method: get
           cors: true
       - http:
+          path: follow
+          method: post
+          cors: true
+      - http:
+          path: followings
+          method: get
+          cors: true
+      - http:
           path: posts
           method: post
           cors: true

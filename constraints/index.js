@@ -14,6 +14,15 @@ const posts = async () => {
   };
 };
 
+const follow = async () => {
+  return {
+    follow: {
+      presence: true,
+    }
+  };
+};
+
 module.exports = {
   posts,
+  follow,
 };

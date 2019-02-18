@@ -83,9 +83,13 @@ exports.up = (knex, Promise) => {
         });
       })
       .then(() => {
-        return knex.schema.createTable('sessions', (table) => {
-          table.string('id').primary();
-          table.string('username').notNull().references('users.username');
+        return knex.schema.createTable('followers', (table) => {
+          table.increments('id');
+          table.string('username').notNull();
+          table.string('following').notNull();
+          table.foreign('username').references('users.username');
+          table.foreign('following').references('users.username');
+          table.unique(['username', 'following']);
           table.timestamps();
         });
       })
@@ -93,7 +97,7 @@ exports.up = (knex, Promise) => {
 };
 
 exports.down = (knex) => {
-  return knex.schema.dropTable('sessions')
+  return knex.schema.dropTable('followers')
     .then(() => knex.schema.dropTable('posts'))
     .then(() => knex.schema.dropTable('nouns'))
     .then(() => knex.schema.dropTable('adjectives'))

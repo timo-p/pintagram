@@ -157,6 +157,27 @@ const deletePost = async (id, user) => {
   return buildResponse();
 };
 
+const follow = async (user, following) => {
+  const exists = await knex('followers').where({username: user.username, following}).limit(1).first();
+  if (exists) {
+    return buildResponse(exists);
+  }
+  const added = await knex.transaction(async (trx) => {
+    await trx('followers').insert({
+      username: user.username,
+      following,
+      created_at: new Date(),
+    });
+    return trx('followers').whereRaw('id = (select last_insert_id())').first();
+  });
+  return buildResponse(added);
+};
+
+const getFollowings = async (user) => {
+  const followings = await knex('followers').where('username', user.username);
+  return buildResponse(followings);
+};
+
 const login = async (username, password) => {
   const user = await knex('users').where({username}).first();
   if (!user) {
@@ -216,6 +237,19 @@ const routes = [
     authorize: true,
     constraints: constraints.posts,
     action: (event, {user, body}) => createPost(user, body.message),
+  },
+  {
+    resource: '/follow',
+    httpMethod: 'POST',
+    authorize: true,
+    constraints: constraints.follow,
+    action: (event, {user, body}) => follow(user, body.follow),
+  },
+  {
+    resource: '/followings',
+    httpMethod: 'GET',
+    authorize: true,
+    action: (event, {user}) => getFollowings(user),
   },
   {
     resource: '/posts/{id}',

@@ -34,18 +34,18 @@ exports.up = (knex, Promise) => {
         })
       )
       .then(() =>
-        knex.schema.createTable('poems', (table) => {
+        knex.schema.createTable('lines', (table) => {
           table.increments('id');
           table.string('line');
           table.unique('line');
         })
       )
       .then(() => {
-        const poems = require('../data/poems.json');
-        const inserts = poems.map((line) => ({
+        const lines = require('../data/lines.json');
+        const inserts = lines.map((line) => ({
           line
         }));
-        return knex('poems').insert(inserts);
+        return knex('lines').insert(inserts);
       })
       .then(() =>
         knex.schema.createTable('adjectives', (table) => {
@@ -78,7 +78,7 @@ exports.up = (knex, Promise) => {
           table.string('message').notNull();
           // table.integer('line_id').unsigned().notNull();
           table.foreign('username').references('users.username');
-          table.foreign('message').references('poems.line');
+          table.foreign('message').references('lines.line');
           table.timestamps();
         });
       })
@@ -101,7 +101,7 @@ exports.down = (knex) => {
     .then(() => knex.schema.dropTable('posts'))
     .then(() => knex.schema.dropTable('nouns'))
     .then(() => knex.schema.dropTable('adjectives'))
-    .then(() => knex.schema.dropTable('poems'))
+    .then(() => knex.schema.dropTable('lines'))
     .then(() => knex.schema.dropTable('users'))
     .then(() => knex.schema.dropTable('last_names'))
     .then(() => knex.schema.dropTable('first_names'));

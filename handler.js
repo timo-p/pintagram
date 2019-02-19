@@ -173,6 +173,11 @@ const follow = async (user, following) => {
   return buildResponse(added);
 };
 
+const unfollow = async (user, following) => {
+  await knex('followers').where({username: user.username, following}).delete();
+  return buildResponse();
+};
+
 const getFollowings = async (user) => {
   const followings = await knex('followers').where('username', user.username);
   return buildResponse(followings);
@@ -207,9 +212,12 @@ const getTimeline = async (user) => {
     .where('username', user.username);
   const posts = await knex('posts').select('*')
     .whereIn('username', usernames)
-    .orWhere('username', user.username);
+    .orWhere('username', user.username)
+    .orderBy('created_at', 'desc');
   return buildResponse(posts);
 };
+
+const getLines = async () => buildResponse(await knex('lines').pluck('line'));
 
 const routes = [
   {
@@ -256,6 +264,13 @@ const routes = [
     action: (event, {user, body}) => follow(user, body.follow),
   },
   {
+    resource: '/unfollow',
+    httpMethod: 'POST',
+    authorize: true,
+    constraints: constraints.follow,
+    action: (event, {user, body}) => unfollow(user, body.follow),
+  },
+  {
     resource: '/followings',
     httpMethod: 'GET',
     authorize: true,
@@ -266,6 +281,12 @@ const routes = [
     httpMethod: 'GET',
     authorize: true,
     action: (event, {user}) => getTimeline(user),
+  },
+  {
+    resource: '/lines',
+    httpMethod: 'GET',
+    authorize: true,
+    action: () => getLines(),
   },
   {
     resource: '/posts/{id}',

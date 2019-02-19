@@ -108,11 +108,19 @@ functions:
           method: post
           cors: true
       - http:
+          path: unfollow
+          method: post
+          cors: true
+      - http:
           path: followings
           method: get
           cors: true
       - http:
           path: timeline
+          method: get
+          cors: true
+      - http:
+          path: lines
           method: get
           cors: true
       - http:

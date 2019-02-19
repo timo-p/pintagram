@@ -2,7 +2,7 @@
 const knex = require('../services/db').getKnex();
 
 const posts = async () => {
-  const lines = await knex('poems').pluck('line');
+  const lines = await knex('lines').pluck('line');
 
   return {
     message: {

@@ -124,10 +124,16 @@ const getUserPosts = async (username, queryParameters) => {
   return buildResponse(posts);
 };
 
-const getUsers = async () => {
-  const users = await knex('users')
+const getUsers = async (usersBefore) => {
+  const query = knex('users')
     .select('username', 'first_name', 'last_name', 'posts')
-    .orderBy('posts', 'desc');
+    .orderBy('posts', 'desc')
+    .orderBy('username')
+    .limit(10);
+  if (usersBefore) {
+    query.where('username', '<', usersBefore);
+  }
+  const users = await query;
   return buildResponse(users);
 };
 
@@ -141,7 +147,9 @@ const createPost = async (user, message) => {
       message,
       created_at: new Date(),
     });
-    return trx('posts').whereRaw('id = (select last_insert_id())').first();
+    return trx('posts').select('posts.id', 'posts.username', 'posts.message', 'posts.created_at',
+      'posts.updated_at', 'users.first_name', 'users.last_name')
+      .join('users', 'posts.username', 'users.username').whereRaw('posts.id = (select last_insert_id())').first();
   });
   await updatePostCount(user.username);
   return buildResponse(post);
@@ -244,7 +252,7 @@ const routes = [
   {
     resource: '/users',
     httpMethod: 'GET',
-    action: () => getUsers(),
+    action: (event, {queryParameters}) => getUsers(queryParameters.users_before),
   },
   {
     resource: '/users/{username}/posts',

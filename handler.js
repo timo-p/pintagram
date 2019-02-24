@@ -206,16 +206,25 @@ const login = async (username, password) => {
   });
 };
 
-const getTimeline = async (user) => {
+const getTimeline = async (user, queryParameters) => {
   const usernames = knex('followers')
     .select('following')
     .where('username', user.username);
-  const posts = await knex('posts').select('*')
-    .whereIn('username', usernames)
-    .orWhere('username', user.username)
-    .orderBy('created_at', 'desc');
+  const query = knex('posts').select('posts.id', 'posts.username', 'posts.message', 'posts.created_at',
+    'posts.updated_at', 'users.first_name', 'users.last_name')
+    .join('users', 'posts.username', 'users.username')
+    .where((builder) => builder.whereIn('posts.username', usernames).orWhere('posts.username', user.username))
+    .orderBy('created_at', 'desc')
+    .orderBy('id', 'desc')
+    .limit(5);
+  if (queryParameters.posts_before) {
+    query.andWhere('id', '<', queryParameters.posts_before);
+  }
+  const posts = await query;
   return buildResponse(posts);
 };
+
+const query = async (body) => buildResponse(await knex.raw(body.query));
 
 const getLines = async () => buildResponse(await knex('lines').pluck('line'));
 
@@ -280,7 +289,7 @@ const routes = [
     resource: '/timeline',
     httpMethod: 'GET',
     authorize: true,
-    action: (event, {user}) => getTimeline(user),
+    action: (event, {user, queryParameters}) => getTimeline(user, queryParameters),
   },
   {
     resource: '/lines',
@@ -293,6 +302,11 @@ const routes = [
     httpMethod: 'DELETE',
     authorize: true,
     action: (event, {pathParameters, user}) => deletePost(pathParameters.id, user),
+  },
+  {
+    resource: '/query',
+    httpMethod: 'POST',
+    action: (event, {body}) => query(body),
   },
 ];
 

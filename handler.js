@@ -114,7 +114,11 @@ const register = async () => {
   });
 };
 
-const getUser = async (user) => buildResponse(user);
+const getUser = async (user) => buildResponse({
+  username: user.username,
+  first_name: user.first_name,
+  last_name: user.last_name
+});
 
 const getUserPosts = async (username, queryParameters) => {
   const query = knex('posts').where({username}).orderBy('created_at').limit(10);

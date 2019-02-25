@@ -11,6 +11,7 @@ const jwt = require('jsonwebtoken');
 const knex = db.getKnex();
 
 const JWT_TOKEN_COOKIE = 'x-jwt-token';
+const JWT_SECRET_KEY = process.env.JWT_SECRET_KEY;
 
 const buildResponse = (body = null, statusCode = 200, headers = {}) => ({
   statusCode,
@@ -35,7 +36,7 @@ const checkLogin = async (event) => {
   }
   const token = event.headers['Authorization'].replace(/^Bearer /, '');
   try {
-    const user = jwt.verify(token, 'foobar');
+    const user = jwt.verify(token, JWT_SECRET_KEY);
     return {user, token};
   } catch(e) {
     return false;
@@ -53,7 +54,7 @@ const generateSalt = (length = 64) => {
   return salt.join('');
 };
 
-const buildJwtToken = (user) => jwt.sign(user, 'foobar', {expiresIn: '24h'});
+const buildJwtToken = (user) => jwt.sign(user, JWT_SECRET_KEY, {expiresIn: '24h'});
 
 const isTokenExpired = (token) => isBefore(new Date(token.iat * 1000), subHours(new Date(), 1));
 
@@ -116,7 +117,7 @@ const register = async () => {
 const getUser = async (user) => buildResponse(user);
 
 const getUserPosts = async (username, queryParameters) => {
-  const query = knex('posts').where({username}).orderBy('created_at').limit(20);
+  const query = knex('posts').where({username}).orderBy('created_at').limit(10);
   if (queryParameters.posts_before) {
     query.andWhere('id', '<', queryParameters.posts_before);
   }
@@ -135,6 +136,11 @@ const getUsers = async (usersBefore) => {
   }
   const users = await query;
   return buildResponse(users);
+};
+
+const getUserByUsername = async (username) => {
+  const user = await knex('users').select('username', 'first_name', 'last_name', 'posts').where('username', username);
+  return buildResponse(user);
 };
 
 const updatePostCount = (username) =>
@@ -224,7 +230,7 @@ const getTimeline = async (user, queryParameters) => {
     .where((builder) => builder.whereIn('posts.username', usernames).orWhere('posts.username', user.username))
     .orderBy('created_at', 'desc')
     .orderBy('id', 'desc')
-    .limit(5);
+    .limit(10);
   if (queryParameters.posts_before) {
     query.andWhere('id', '<', queryParameters.posts_before);
   }
@@ -255,9 +261,13 @@ const routes = [
     action: (event, {queryParameters}) => getUsers(queryParameters.users_before),
   },
   {
+    resource: '/users/{username}',
+    httpMethod: 'GET',
+    action: (event, {pathParameters}) => getUserByUsername(pathParameters.username),
+  },
+  {
     resource: '/users/{username}/posts',
     httpMethod: 'GET',
-    authorize: true,
     action: (event, {pathParameters, queryParameters}) => getUserPosts(pathParameters.username, queryParameters),
   },
   {

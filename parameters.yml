@@ -2,6 +2,6 @@ securityGroupIds:
   - id1
 subnetIds:
   - id1
-sessionTokenSalt: something
+jwtSecretKey: something
 dbUsername: username
 dbPassword: password

@@ -81,7 +81,7 @@ functions:
       DB_PORT: ${self:resources.Outputs.DbPort.Value}
       DB_USER: ${self:custom.parameters.dbUsername}
       DB_PASSWORD: ${self:custom.parameters.dbPassword}
-      SESSION_TOKEN_SALT: ${self:custom.parameters.sessionTokenSalt}
+      JWT_SECRET_KEY: ${self:custom.parameters.jwtSecretKey}
     events:
       - http:
           path: register
@@ -97,6 +97,10 @@ functions:
           cors: true
       - http:
           path: users
+          method: get
+          cors: true
+      - http:
+          path: users/{username}
           method: get
           cors: true
       - http:

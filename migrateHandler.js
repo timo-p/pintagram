@@ -14,11 +14,10 @@ const migrate = async (event) => {
   let result;
   if (action === 'rollback') {
     result = await knex.migrate.rollback();
-    /*
-    await db.destroy();
-    db = getDb();
-    await db.schema.raw('drop database pintagram');
-    */
+  } else if (action === 'drop') {
+    await knex.destroy();
+    knex = db.getKnex(null);
+    await knex.schema.raw('drop database pintagram');
   } else {
     result = await knex.migrate.latest();
   }

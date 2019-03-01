@@ -5,3 +5,7 @@ subnetIds:
 jwtSecretKey: something
 dbUsername: username
 dbPassword: password
+allowOrigin: https://domain.com
+domainName: api.domain.com
+certificateName: '*.domain.club'
+certificateArn: arn:aws:acm:us-east-1:1234:certificate/05f6433c-4db7-4458-952b-5e083ad82ccc

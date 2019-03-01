@@ -35,9 +35,7 @@ exports.up = (knex, Promise) => {
       )
       .then(() =>
         knex.schema.createTable('lines', (table) => {
-          table.increments('id');
-          table.string('line');
-          table.unique('line');
+          table.string('line').notNullable().primary();
         })
       )
       .then(() => {
@@ -76,7 +74,6 @@ exports.up = (knex, Promise) => {
           table.increments('id');
           table.string('username');
           table.string('message').notNull();
-          // table.integer('line_id').unsigned().notNull();
           table.foreign('username').references('users.username');
           table.foreign('message').references('lines.line');
           table.timestamps();

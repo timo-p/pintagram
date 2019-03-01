@@ -20,6 +20,11 @@ service: pintagram # NOTE: update this with your service name
 custom:
   paremetersFile: ${env:PARAMETERS_FILE, './parameters.yml'}
   parameters: ${file(${self:custom.paremetersFile})}
+  customDomain:
+    domainName: ${self:custom.parameters.domainName}
+    certificateName: ${self:custom.parameters.certificateName}
+    certificateArn: ${self:custom.parameters.certificateArn}
+    createRoute53Record: false
 
 provider:
   name: aws
@@ -70,7 +75,7 @@ functions:
       DB_PORT: ${self:resources.Outputs.DbPort.Value}
       DB_USER: ${self:custom.parameters.dbUsername}
       DB_PASSWORD: ${self:custom.parameters.dbPassword}
-  hello:
+  api:
     handler: handler.router
     timeout: 30
     vpc:
@@ -82,6 +87,7 @@ functions:
       DB_USER: ${self:custom.parameters.dbUsername}
       DB_PASSWORD: ${self:custom.parameters.dbPassword}
       JWT_SECRET_KEY: ${self:custom.parameters.jwtSecretKey}
+      ALLOW_ORIGIN: ${self:custom.parameters.allowOrigin}
     events:
       - http:
           path: register
@@ -198,3 +204,6 @@ resources:
     DbPort:
       Value: 
         "Fn::GetAtt": [DB, Endpoint.Port]
+
+plugins:
+  - serverless-domain-manager

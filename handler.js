@@ -12,12 +12,13 @@ const knex = db.getKnex();
 
 const JWT_TOKEN_COOKIE = 'x-jwt-token';
 const JWT_SECRET_KEY = process.env.JWT_SECRET_KEY;
+const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN;
 
 const buildResponse = (body = null, statusCode = 200, headers = {}) => ({
   statusCode,
   headers: {
     ...headers,
-    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Origin': ALLOW_ORIGIN,
     'Access-Control-Allow-Credentials': true,
     'Access-Control-Expose-Headers': JWT_TOKEN_COOKIE
   },
@@ -88,7 +89,7 @@ const register = async () => {
   const username = `${first_name}.${last_name}`.toLowerCase();
   const salt = generateSalt();
   const password = hash(unhashedPassword, salt);
-  
+
   await knex('users').insert({
     first_name,
     last_name,
@@ -143,7 +144,7 @@ const getUsers = async (usersBefore) => {
 };
 
 const getUserByUsername = async (username) => {
-  const user = await knex('users').select('username', 'first_name', 'last_name', 'posts').where('username', username);
+  const user = await knex('users').select('username', 'first_name', 'last_name', 'posts').where('username', username).first();
   return buildResponse(user);
 };
 

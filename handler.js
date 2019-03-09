@@ -121,23 +121,47 @@ const getUser = async (user) => buildResponse({
   last_name: user.last_name
 });
 
-const getUserPosts = async (username, queryParameters) => {
-  const query = knex('posts').where({username}).orderBy('created_at').limit(10);
-  if (queryParameters.posts_before) {
-    query.andWhere('id', '<', queryParameters.posts_before);
+const getUserPosts = async (user, username, queryParameters) => {
+  const selects = [
+    'posts.id',
+    'posts.username',
+    'posts.message',
+    'posts.likes',
+    'posts.created_at',
+    'posts.updated_at',
+    'users.first_name',
+    'users.last_name',
+  ];
+  const query = knex('posts')
+    .join('users', 'posts.username', 'users.username')
+    .where({'posts.username': username})
+    .orderBy('created_at')
+    .limit(10);
+  if (user) {
+    query.select(selects.concat(
+      knex.raw('case when likes.id is null then 0 else 1 end as is_liked')));
+    query.leftJoin('likes', function() {
+      this.on('posts.id', 'likes.post_id').andOnIn('likes.username', [user.username]);
+    });
+  } else {
+    query.select(selects.concat(knex.raw('0 as is_liked')));
   }
-  const posts = await query;
+  if (queryParameters.posts_before) {
+    query.andWhere('posts.id', '<', queryParameters.posts_before);
+  }
+  const posts = await query.map((row) => ({...row, is_liked: !!row.is_liked}));
   return buildResponse(posts);
 };
 
 const getUsers = async (usersBefore) => {
+  await knex.raw('SET @row_number = 0');
   const query = knex('users')
-    .select('username', 'first_name', 'last_name', 'posts')
+    .select('username', 'first_name', 'last_name', 'posts',
+      knex.raw('(@row_number:=@row_number + 1) as ranking'))
     .orderBy('posts', 'desc')
-    .orderBy('username')
-    .limit(10);
+    .orderBy('username');
   if (usersBefore) {
-    query.where('username', '<', usersBefore);
+    query.offset(parseInt(usersBefore, 10));
   }
   const users = await query;
   return buildResponse(users);
@@ -159,7 +183,7 @@ const createPost = async (user, message) => {
       created_at: new Date(),
     });
     return trx('posts').select('posts.id', 'posts.username', 'posts.message', 'posts.created_at',
-      'posts.updated_at', 'users.first_name', 'users.last_name')
+      'posts.updated_at', 'posts.likes', 'users.first_name', 'users.last_name')
       .join('users', 'posts.username', 'users.username').whereRaw('posts.id = (select last_insert_id())').first();
   });
   await updatePostCount(user.username);
@@ -171,6 +195,7 @@ const deletePost = async (id, user) => {
   if (!exists) {
     return buildResponse(null, 401);
   }
+  await knex('likes').where({post_id: id}).delete();
   await knex('posts').where({id}).delete();
   await updatePostCount(user.username);
   return buildResponse();
@@ -190,6 +215,58 @@ const follow = async (user, following) => {
     return trx('followers').whereRaw('id = (select last_insert_id())').first();
   });
   return buildResponse(added);
+};
+
+const updateLikeCount = (postId) =>
+  knex('posts').update({likes: knex('likes').count().where({post_id: postId})}).where({id: postId});
+
+const getPost = (postId) => knex('posts')
+  .select(
+    'posts.id',
+    'posts.username',
+    'posts.message',
+    'posts.likes',
+    'posts.created_at',
+    'posts.updated_at',
+    'users.first_name',
+    'users.last_name',
+  )
+  .join('users', 'posts.username', 'users.username')
+  .where('posts.id', postId)
+  .limit(1)
+  .first();
+
+const like = async (user, postId) => {
+  const exists = await knex('likes')
+    .select(
+      'posts.id',
+      'posts.username',
+      'posts.message',
+      'posts.likes',
+      'posts.created_at',
+      'posts.updated_at',
+      'users.first_name',
+      'users.last_name',
+    )
+    .join('posts', function() {
+      this.on('likes.post_id', 'posts.id').andOn('likes.username', 'posts.username');
+    })
+    .join('users', 'posts.username', 'users.username')
+    .where({'likes.username': user.username, post_id: postId}).limit(1).first();
+  if (exists) {
+    return buildResponse({...exists, is_liked: true});
+  }
+  await knex('likes').insert({username: user.username, post_id: postId, created_at: new Date()});
+  await updateLikeCount(postId);
+  const post = await getPost(postId);
+  return buildResponse({...post, is_liked: true});
+};
+
+const unlike = async (user, postId) => {
+  await knex('likes').where({username: user.username, post_id: postId}).delete();
+  await updateLikeCount(postId);
+  const post = await getPost(postId);
+  return buildResponse({...post, is_liked: false});
 };
 
 const unfollow = async (user, following) => {
@@ -229,17 +306,29 @@ const getTimeline = async (user, queryParameters) => {
   const usernames = knex('followers')
     .select('following')
     .where('username', user.username);
-  const query = knex('posts').select('posts.id', 'posts.username', 'posts.message', 'posts.created_at',
-    'posts.updated_at', 'users.first_name', 'users.last_name')
+  const query = knex('posts').select(
+    'posts.id',
+    'posts.username',
+    'posts.message',
+    'posts.likes',
+    'posts.created_at',
+    'posts.updated_at',
+    'users.first_name',
+    'users.last_name',
+    knex.raw('case when likes.id is null then 0 else 1 end as is_liked')
+  )
     .join('users', 'posts.username', 'users.username')
+    .leftJoin('likes', function() {
+      this.on('posts.id', 'likes.post_id').andOnIn('likes.username', [user.username]);
+    })
     .where((builder) => builder.whereIn('posts.username', usernames).orWhere('posts.username', user.username))
     .orderBy('created_at', 'desc')
     .orderBy('id', 'desc')
     .limit(10);
   if (queryParameters.posts_before) {
-    query.andWhere('id', '<', queryParameters.posts_before);
+    query.andWhere('posts.id', '<', queryParameters.posts_before);
   }
-  const posts = await query;
+  const posts = await query.map((row) => ({ ...row, is_liked: !!row.is_liked }));
   return buildResponse(posts);
 };
 
@@ -273,7 +362,7 @@ const routes = [
   {
     resource: '/users/{username}/posts',
     httpMethod: 'GET',
-    action: (event, {pathParameters, queryParameters}) => getUserPosts(pathParameters.username, queryParameters),
+    action: (event, {user, pathParameters, queryParameters}) => getUserPosts(user, pathParameters.username, queryParameters),
   },
   {
     resource: '/login',
@@ -327,6 +416,18 @@ const routes = [
     action: (event, {pathParameters, user}) => deletePost(pathParameters.id, user),
   },
   {
+    resource: '/posts/{id}/likes',
+    httpMethod: 'POST',
+    authorize: true,
+    action: (event, {pathParameters, user}) => like(user, pathParameters.id),
+  },
+  {
+    resource: '/posts/{id}/likes',
+    httpMethod: 'DELETE',
+    authorize: true,
+    action: (event, {pathParameters, user}) => unlike(user, pathParameters.id),
+  },
+  {
     resource: '/query',
     httpMethod: 'POST',
     action: (event, {body}) => query(body),
@@ -338,12 +439,10 @@ const router = async (event) => {
   if (!route) {
     return buildResponse(null, 404);
   }
-  let user;
-  let token;
+  const loginCheckResult = await checkLogin(event);
+  const user = loginCheckResult ? loginCheckResult.user : undefined;
+  let token = loginCheckResult ? loginCheckResult.token : undefined;
   if (route.authorize) {
-    const result = await checkLogin(event);
-    user = result.user;
-    token = result.token;
     if (!user) {
       return buildResponse(null, 401);
     }

@@ -74,6 +74,7 @@ exports.up = (knex, Promise) => {
           table.increments('id');
           table.string('username');
           table.string('message').notNull();
+          table.integer('likes').notNull().defaultTo(0);
           table.foreign('username').references('users.username');
           table.foreign('message').references('lines.line');
           table.timestamps();
@@ -90,11 +91,23 @@ exports.up = (knex, Promise) => {
           table.timestamps();
         });
       })
+      .then(() => {
+        return knex.schema.createTable('likes', (table) => {
+          table.increments('id');
+          table.string('username').notNull();
+          table.integer('post_id').unsigned().notNull();
+          table.foreign('username').references('users.username');
+          table.foreign('post_id').references('posts.id');
+          table.unique(['username', 'post_id']);
+          table.timestamps();
+        });
+      })
   ]);
 };
 
 exports.down = (knex) => {
-  return knex.schema.dropTable('followers')
+  return knex.schema.dropTable('likes')
+    .then(() => knex.schema.dropTable('followers'))
     .then(() => knex.schema.dropTable('posts'))
     .then(() => knex.schema.dropTable('nouns'))
     .then(() => knex.schema.dropTable('adjectives'))

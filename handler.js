@@ -115,6 +115,32 @@ const register = async () => {
   });
 };
 
+const wakeUpDb = (maxWaitTime) => new Promise((resolve) => {
+  const timeout = setTimeout(() => {
+    resolve();
+  }, maxWaitTime);
+  knex.raw('select now()').then(() => {
+    clearTimeout(timeout);
+    resolve();
+  });
+});
+
+const waitUntilDbWorks = async (func, delay = 1000) => {
+  return new Promise(async (resolve) => {
+    try {
+      await knex.raw('select now()').then();
+      resolve();
+    } catch(e) {
+      console.log(`Caught error. Retrying after ${delay}ms. Error: ${e}`); // eslint-disable-line no-console
+      const waiter = new Promise((waitResolve) => {
+        setTimeout(() => waitResolve(), delay);
+      });
+      await waiter;
+      return waitUntilDbWorks(func, delay);
+    }
+  });
+};
+
 const getUser = async (user) => buildResponse({
   username: user.username,
   first_name: user.first_name,
@@ -347,6 +373,7 @@ const routes = [
     resource: '/user',
     httpMethod: 'GET',
     authorize: true,
+    wakeUpDb: true,
     action: (event, {user}) => getUser(user),
   },
   {
@@ -434,10 +461,17 @@ const routes = [
   },
 ];
 
-const router = async (event) => {
+const router = async (event, context) => {
+  console.log(`Received event ${event.httpMethod} ${event.resource}`); // eslint-disable-line no-console
   const route = routes.find((r) => r.resource === event.resource && r.httpMethod === event.httpMethod);
   if (!route) {
     return buildResponse(null, 404);
+  }
+  if (route.wakeUpDb) {
+    const maxWaitTime = context.getRemainingTimeInMillis() - 1000;
+    console.log(`Waking up db. Waiting at max ${maxWaitTime}ms.`); // eslint-disable-line no-console
+    await wakeUpDb(maxWaitTime);
+    console.log('Db woke up'); // eslint-disable-line no-console
   }
   const loginCheckResult = await checkLogin(event);
   const user = loginCheckResult ? loginCheckResult.user : undefined;
@@ -458,6 +492,12 @@ const router = async (event) => {
     if (errors) {
       return buildResponse(errors, 400);
     }
+  }
+
+  if (!route.wakeUpDb) {
+    console.log('Connecting to db'); // eslint-disable-line no-console
+    await waitUntilDbWorks();
+    console.log('Db connected up'); // eslint-disable-line no-console
   }
 
   const response = await route.action(event, {body, pathParameters, user, queryParameters});

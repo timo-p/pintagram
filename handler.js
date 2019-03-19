@@ -8,8 +8,6 @@ const validate = require('validate.js');
 const constraints = require('./constraints');
 const jwt = require('jsonwebtoken');
 
-const knex = db.getKnex();
-
 const JWT_TOKEN_COOKIE = 'x-jwt-token';
 const JWT_SECRET_KEY = process.env.JWT_SECRET_KEY;
 const ALLOW_ORIGIN = process.env.ALLOW_ORIGIN;
@@ -59,7 +57,7 @@ const buildJwtToken = (user) => jwt.sign(user, JWT_SECRET_KEY, {expiresIn: '24h'
 
 const isTokenExpired = (token) => isBefore(new Date(token.iat * 1000), subHours(new Date(), 1));
 
-const register = async () => {
+const register = async (knex) => {
   const {first_name, last_name} = await knex.select('sub1.first_name', 'sub2.last_name')
     .from(function() {
       this.select('first_name').from('first_names').orderByRaw('rand()').limit(100).as('sub1');
@@ -116,30 +114,17 @@ const register = async () => {
 };
 
 const wakeUpDb = (maxWaitTime) => new Promise((resolve) => {
+  console.log(`Waking up db. Waiting at max ${maxWaitTime}ms.`); // eslint-disable-line no-console
   const timeout = setTimeout(() => {
+    console.log('Db wake up timeout reached'); // eslint-disable-line no-console
     resolve();
   }, maxWaitTime);
-  knex.raw('select now()').then(() => {
+  db.getKnex().raw('select now()').then(() => {
+    console.log('Db woke up'); // eslint-disable-line no-console
     clearTimeout(timeout);
     resolve();
   });
 });
-
-const waitUntilDbWorks = async (func, delay = 1000) => {
-  return new Promise(async (resolve) => {
-    try {
-      await knex.raw('select now()').then();
-      resolve();
-    } catch(e) {
-      console.log(`Caught error. Retrying after ${delay}ms. Error: ${e}`); // eslint-disable-line no-console
-      const waiter = new Promise((waitResolve) => {
-        setTimeout(() => waitResolve(), delay);
-      });
-      await waiter;
-      return waitUntilDbWorks(func, delay);
-    }
-  });
-};
 
 const getUser = async (user) => buildResponse({
   username: user.username,
@@ -147,7 +132,7 @@ const getUser = async (user) => buildResponse({
   last_name: user.last_name
 });
 
-const getUserPosts = async (user, username, queryParameters) => {
+const getUserPosts = async (knex, user, username, queryParameters) => {
   const selects = [
     'posts.id',
     'posts.username',
@@ -179,7 +164,7 @@ const getUserPosts = async (user, username, queryParameters) => {
   return buildResponse(posts);
 };
 
-const getUsers = async (usersBefore) => {
+const getUsers = async (knex, usersBefore) => {
   await knex.raw('SET @row_number = 0');
   const query = knex('users')
     .select('username', 'first_name', 'last_name', 'posts',
@@ -193,15 +178,15 @@ const getUsers = async (usersBefore) => {
   return buildResponse(users);
 };
 
-const getUserByUsername = async (username) => {
+const getUserByUsername = async (knex, username) => {
   const user = await knex('users').select('username', 'first_name', 'last_name', 'posts').where('username', username).first();
   return buildResponse(user);
 };
 
-const updatePostCount = (username) =>
+const updatePostCount = (knex, username) =>
   knex('users').update({posts: knex('posts').count().where({username})}).where({username});
 
-const createPost = async (user, message) => {
+const createPost = async (knex, user, message) => {
   const post = await knex.transaction(async (trx) => {
     await trx('posts').insert({
       username: user.username,
@@ -212,22 +197,22 @@ const createPost = async (user, message) => {
       'posts.updated_at', 'posts.likes', 'users.first_name', 'users.last_name')
       .join('users', 'posts.username', 'users.username').whereRaw('posts.id = (select last_insert_id())').first();
   });
-  await updatePostCount(user.username);
+  await updatePostCount(knex, user.username);
   return buildResponse(post);
 };
 
-const deletePost = async (id, user) => {
+const deletePost = async (knex, id, user) => {
   const exists = await knex('posts').select(1).where({id, username: user.username}).limit(1).first();
   if (!exists) {
     return buildResponse(null, 401);
   }
   await knex('likes').where({post_id: id}).delete();
   await knex('posts').where({id}).delete();
-  await updatePostCount(user.username);
+  await updatePostCount(knex, user.username);
   return buildResponse();
 };
 
-const follow = async (user, following) => {
+const follow = async (knex, user, following) => {
   const exists = await knex('followers').where({username: user.username, following}).limit(1).first();
   if (exists) {
     return buildResponse(exists);
@@ -243,10 +228,10 @@ const follow = async (user, following) => {
   return buildResponse(added);
 };
 
-const updateLikeCount = (postId) =>
+const updateLikeCount = (knex, postId) =>
   knex('posts').update({likes: knex('likes').count().where({post_id: postId})}).where({id: postId});
 
-const getPost = (postId) => knex('posts')
+const getPost = (knex, postId) => knex('posts')
   .select(
     'posts.id',
     'posts.username',
@@ -262,7 +247,7 @@ const getPost = (postId) => knex('posts')
   .limit(1)
   .first();
 
-const like = async (user, postId) => {
+const like = async (knex, user, postId) => {
   const exists = await knex('likes')
     .select(
       'posts.id',
@@ -283,29 +268,29 @@ const like = async (user, postId) => {
     return buildResponse({...exists, is_liked: true});
   }
   await knex('likes').insert({username: user.username, post_id: postId, created_at: new Date()});
-  await updateLikeCount(postId);
-  const post = await getPost(postId);
+  await updateLikeCount(knex, postId);
+  const post = await getPost(knex, postId);
   return buildResponse({...post, is_liked: true});
 };
 
-const unlike = async (user, postId) => {
+const unlike = async (knex, user, postId) => {
   await knex('likes').where({username: user.username, post_id: postId}).delete();
-  await updateLikeCount(postId);
-  const post = await getPost(postId);
+  await updateLikeCount(knex, postId);
+  const post = await getPost(knex, postId);
   return buildResponse({...post, is_liked: false});
 };
 
-const unfollow = async (user, following) => {
+const unfollow = async (knex, user, following) => {
   await knex('followers').where({username: user.username, following}).delete();
   return buildResponse();
 };
 
-const getFollowings = async (user) => {
+const getFollowings = async (knex, user) => {
   const followings = await knex('followers').where('username', user.username);
   return buildResponse(followings);
 };
 
-const login = async (username, password) => {
+const login = async (knex, username, password) => {
   const user = await knex('users').where({username}).first();
   if (!user) {
     return buildResponse(null, 400);
@@ -328,7 +313,7 @@ const login = async (username, password) => {
   });
 };
 
-const getTimeline = async (user, queryParameters) => {
+const getTimeline = async (knex, user, queryParameters) => {
   const usernames = knex('followers')
     .select('following')
     .where('username', user.username);
@@ -358,120 +343,118 @@ const getTimeline = async (user, queryParameters) => {
   return buildResponse(posts);
 };
 
-const query = async (body) => buildResponse(await knex.raw(body.query));
+const getLines = async (knex, ) => buildResponse(await knex('lines').pluck('line'));
 
-const getLines = async () => buildResponse(await knex('lines').pluck('line'));
+const checkOrigin = (event) => ALLOW_ORIGIN === event.headers.origin;
 
 const routes = [
   {
     resource: '/register',
     httpMethod: 'POST',
     authorize: false,
-    action: () => register(),
+    action: ({knex}) => register(knex),
   },
   {
     resource: '/user',
     httpMethod: 'GET',
     authorize: true,
     wakeUpDb: true,
-    action: (event, {user}) => getUser(user),
+    action: ({user}) => getUser(user),
   },
   {
     resource: '/users',
     httpMethod: 'GET',
-    action: (event, {queryParameters}) => getUsers(queryParameters.users_before),
+    action: ({knex, queryParameters}) => getUsers(knex, queryParameters.users_before),
   },
   {
     resource: '/users/{username}',
     httpMethod: 'GET',
-    action: (event, {pathParameters}) => getUserByUsername(pathParameters.username),
+    action: ({knex, pathParameters}) => getUserByUsername(knex, pathParameters.username),
   },
   {
     resource: '/users/{username}/posts',
     httpMethod: 'GET',
-    action: (event, {user, pathParameters, queryParameters}) => getUserPosts(user, pathParameters.username, queryParameters),
+    action: ({knex, user, pathParameters, queryParameters}) => getUserPosts(knex, user, pathParameters.username, queryParameters),
   },
   {
     resource: '/login',
     httpMethod: 'POST',
     authorize: false,
-    action: (event, {body}) => login(body.username, body.password),
+    action: ({knex, body}) => login(knex, body.username, body.password),
   },
   {
     resource: '/posts',
     httpMethod: 'POST',
     authorize: true,
     constraints: constraints.posts,
-    action: (event, {user, body}) => createPost(user, body.message),
+    action: ({knex, user, body}) => createPost(knex, user, body.message),
   },
   {
     resource: '/follow',
     httpMethod: 'POST',
     authorize: true,
     constraints: constraints.follow,
-    action: (event, {user, body}) => follow(user, body.follow),
+    action: ({knex, user, body}) => follow(knex, user, body.follow),
   },
   {
     resource: '/unfollow',
     httpMethod: 'POST',
     authorize: true,
     constraints: constraints.follow,
-    action: (event, {user, body}) => unfollow(user, body.follow),
+    action: ({knex, user, body}) => unfollow(knex, user, body.follow),
   },
   {
     resource: '/followings',
     httpMethod: 'GET',
     authorize: true,
-    action: (event, {user}) => getFollowings(user),
+    action: ({knex, user}) => getFollowings(knex, user),
   },
   {
     resource: '/timeline',
     httpMethod: 'GET',
     authorize: true,
-    action: (event, {user, queryParameters}) => getTimeline(user, queryParameters),
+    action: ({knex, user, queryParameters}) => getTimeline(knex, user, queryParameters),
   },
   {
     resource: '/lines',
     httpMethod: 'GET',
     authorize: true,
-    action: () => getLines(),
+    action: ({knex}) => getLines(knex),
   },
   {
     resource: '/posts/{id}',
     httpMethod: 'DELETE',
     authorize: true,
-    action: (event, {pathParameters, user}) => deletePost(pathParameters.id, user),
+    action: ({knex, pathParameters, user}) => deletePost(knex, pathParameters.id, user),
   },
   {
     resource: '/posts/{id}/likes',
     httpMethod: 'POST',
     authorize: true,
-    action: (event, {pathParameters, user}) => like(user, pathParameters.id),
+    action: ({knex, pathParameters, user}) => like(knex, user, pathParameters.id),
   },
   {
     resource: '/posts/{id}/likes',
     httpMethod: 'DELETE',
     authorize: true,
-    action: (event, {pathParameters, user}) => unlike(user, pathParameters.id),
-  },
-  {
-    resource: '/query',
-    httpMethod: 'POST',
-    action: (event, {body}) => query(body),
+    action: ({knex, pathParameters, user}) => unlike(knex, user, pathParameters.id),
   },
 ];
 
 const router = async (event, context) => {
   console.log(`Received event ${event.httpMethod} ${event.resource}`); // eslint-disable-line no-console
+  if (!checkOrigin(event)) {
+    console.log(`Invalid origin ${event.headers.origin}`); // eslint-disable-line no-console
+    return buildResponse(null, 401);
+  }
+
   const route = routes.find((r) => r.resource === event.resource && r.httpMethod === event.httpMethod);
   if (!route) {
     return buildResponse(null, 404);
   }
   if (route.wakeUpDb) {
     const maxWaitTime = context.getRemainingTimeInMillis() - 1000;
-    console.log(`Waking up db. Waiting at max ${maxWaitTime}ms.`); // eslint-disable-line no-console
     await wakeUpDb(maxWaitTime);
-    console.log('Db woke up'); // eslint-disable-line no-console
   }
   const loginCheckResult = await checkLogin(event);
   const user = loginCheckResult ? loginCheckResult.user : undefined;
@@ -494,13 +477,14 @@ const router = async (event, context) => {
     }
   }
 
+  let knex;
   if (!route.wakeUpDb) {
     console.log('Connecting to db'); // eslint-disable-line no-console
-    await waitUntilDbWorks();
-    console.log('Db connected up'); // eslint-disable-line no-console
+    knex = await db.getKnexAndCheckConnection();
+    console.log('Db connected'); // eslint-disable-line no-console
   }
 
-  const response = await route.action(event, {body, pathParameters, user, queryParameters});
+  const response = await route.action({knex, body, pathParameters, user, queryParameters});
   if (response.statusCode === 200 && user) {
     if (isTokenExpired(user)) {
       response.headers[JWT_TOKEN_COOKIE] = buildJwtToken({

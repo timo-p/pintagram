@@ -19,6 +19,25 @@ const getKnex = (database = 'pintagram', migrations) => {
   return db;
 };
 
+const getKnexAndCheckConnection = () => {
+  return new Promise(async (resolve) => {
+    try {
+      const knex = getKnex();
+      await knex.raw('select now()').then().catchThrow();
+      resolve(knex);
+    } catch(e) {
+      console.log(`Caught error. Retrying after 1000ms. Error: ${e}`); // eslint-disable-line no-console
+      const waiter = new Promise((waitResolve) => {
+        setTimeout(() => waitResolve(), 1000);
+      });
+      await waiter;
+      return getKnexAndCheckConnection();
+    }
+  });
+
+};
+
 module.exports = {
   getKnex,
+  getKnexAndCheckConnection,
 };
